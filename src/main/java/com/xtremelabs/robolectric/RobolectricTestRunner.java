@@ -1,7 +1,32 @@
 package com.xtremelabs.robolectric;
 
+import java.io.File;
+import java.io.IOException;
+import java.lang.annotation.Annotation;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
+import java.util.HashMap;
+import java.util.Map;
+
+import javassist.Loader;
+
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
+
+import org.junit.runner.notification.RunNotifier;
+import org.junit.runners.BlockJUnit4ClassRunner;
+import org.junit.runners.model.FrameworkMethod;
+import org.junit.runners.model.InitializationError;
+import org.junit.runners.model.Statement;
+import org.w3c.dom.Document;
+import org.xml.sax.SAXException;
+
 import android.app.Application;
 import android.net.Uri__FromAndroid;
+
 import com.xtremelabs.robolectric.bytecode.ClassHandler;
 import com.xtremelabs.robolectric.bytecode.RobolectricClassLoader;
 import com.xtremelabs.robolectric.bytecode.ShadowWrangler;
@@ -13,26 +38,6 @@ import com.xtremelabs.robolectric.util.DatabaseConfig;
 import com.xtremelabs.robolectric.util.DatabaseConfig.DatabaseMap;
 import com.xtremelabs.robolectric.util.DatabaseConfig.UsingDatabaseMap;
 import com.xtremelabs.robolectric.util.SQLiteMap;
-import javassist.Loader;
-import org.junit.runners.BlockJUnit4ClassRunner;
-import org.junit.runners.model.FrameworkMethod;
-import org.junit.runners.model.InitializationError;
-import org.junit.runners.model.Statement;
-import org.w3c.dom.Document;
-import org.xml.sax.SAXException;
-
-import javax.xml.parsers.DocumentBuilder;
-import javax.xml.parsers.DocumentBuilderFactory;
-import javax.xml.parsers.ParserConfigurationException;
-import java.io.File;
-import java.io.IOException;
-import java.lang.annotation.Annotation;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * Installs a {@link RobolectricClassLoader} and {@link com.xtremelabs.robolectric.res.ResourceLoader} in order to
@@ -47,6 +52,8 @@ public class RobolectricTestRunner extends BlockJUnit4ClassRunner implements Rob
     private ClassHandler classHandler;
     private RobolectricTestRunnerInterface delegate;
     private DatabaseMap databaseMap;
+    private ClassLoader runnerLoader;
+    private ClassLoader originalLoader;
     
 	// fields in the RobolectricTestRunner in the instrumented ClassLoader
     protected RobolectricConfig robolectricConfig;
@@ -209,6 +216,8 @@ public class RobolectricTestRunner extends BlockJUnit4ClassRunner implements Rob
             this.classLoader = classLoader;
             this.robolectricConfig = robolectricConfig;
             this.databaseMap = setupDatabaseMap(testClass, map);
+            this.runnerLoader = classLoader;
+            this.originalLoader = Thread.currentThread().getContextClassLoader();
             
             Thread.currentThread().setContextClassLoader(classLoader);
             
@@ -229,6 +238,7 @@ public class RobolectricTestRunner extends BlockJUnit4ClassRunner implements Rob
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
+            Thread.currentThread().setContextClassLoader(originalLoader);
         }
     }
 
@@ -325,6 +335,16 @@ public class RobolectricTestRunner extends BlockJUnit4ClassRunner implements Rob
     public void afterTest(final Method method) {
     }
 
+    @Override
+    public void run(RunNotifier notifier) {
+        try {
+            Thread.currentThread().setContextClassLoader(runnerLoader);
+            super.run(notifier);
+        } finally {
+        	 Thread.currentThread().setContextClassLoader(originalLoader);
+        }
+    }    
+    
     /**
      * You probably don't want to override this method. Override #prepareTest(Object) instead.
      *
